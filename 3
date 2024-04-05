@@ -14,25 +14,16 @@ filtered_kv_pairs_df = kv_pairs_df.filter(~F.col("kv_pair").rlike("^\\s*$")) \
                                  .filter(F.size("kv_split") == 2) \
                                  .select(F.col("kv_split")[0].alias("key"), F.col("kv_split")[1].alias("value"))
 
-# Filter for the fields of interest and add a batch ID
-batch_df = filtered_kv_pairs_df.withColumn("batch_id", F.spark_partition_id())
+# Filter for the fields of interest, flatten into a single column, and create prefixed values
+prefixed_fields_df = filtered_kv_pairs_df.filter(F.col("key").isin("uid", "name", "hostname")) \
+                                       .withColumn("prefixed_value", F.concat(F.col("key"), F.lit(": "), F.col("value"))) \
+                                       .select("prefixed_value")
 
-# Collect the unique key-values into lists per batch
-grouped_df = batch_df.groupBy("batch_id").agg(F.collect_set(F.struct("key", "value")).alias("field_sets"))
-
-# Explode the collected sets into rows
-exploded_df = grouped_df.select(F.explode("field_sets").alias("field_set")) \
-                        .select(F.col("field_set.key").alias("key"), F.col("field_set.value").alias("value"))
-
-# Filter for the fields of interest and create prefixed values
-prefixed_fields_df = exploded_df.filter(F.col("key").isin("uid", "name", "hostname")) \
-                               .withColumn("prefixed_value", F.concat(F.col("key"), F.lit(": "), F.col("value")))
-
-# Deduplicate based on prefixed value
-deduplicated_df = prefixed_fields_df.dropDuplicates(["prefixed_value"])
+# Use distinct to remove duplicates within each batch
+distinct_values_df = prefixed_fields_df.distinct()
 
 # Count occurrences
-field_counts = deduplicated_df.groupBy("prefixed_value").count()
+field_counts = distinct_values_df.groupBy("prefixed_value").count()
 
 # Start the streaming query
 query = field_counts.writeStream.outputMode("complete").format("console").start()
