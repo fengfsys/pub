@@ -1,13 +1,4 @@
-from pyspark.sql import SparkSession, functions as F
 
-# Initialize SparkSession
-spark = SparkSession.builder.appName("AppUsageCounter").getOrCreate()
-
-# Read stream from Kafka
-raw_df = spark.readStream.format("kafka") \
-    .option("kafka.bootstrap.servers", "iapp1318.croydon.ms.com:9092") \
-    .option("subscribe", "Log.AppTracker.Usage") \
-    .load()
 
 # Extract messages as strings
 messages_df = raw_df.selectExpr("cast(value as string) as message")
