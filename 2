@@ -1,0 +1,34 @@
+
+# Extract messages as strings
+messages_df = raw_df.selectExpr("cast(value as string) as message")
+
+# Define the delimiter pattern (comma followed by one or more spaces)
+delimiter_pattern = r",\s+"
+
+# Split the message into lines (if needed) and then into key-value pairs
+lines_df = messages_df.select(F.explode(F.split("message", "\n")).alias("line"))
+kv_pairs_df = lines_df.select(F.explode(F.split("line", delimiter_pattern)).alias("kv_pair"))
+
+# Filter out non-key-value pairs and extract the fields of interest
+filtered_kv_pairs_df = kv_pairs_df.filter(~F.col("kv_pair").rlike("^\\s*$")) \
+                                 .withColumn("kv_split", F.split("kv_pair", "\\s+")) \
+                                 .filter(F.size("kv_split") == 2) \
+                                 .select(F.col("kv_split")[0].alias("key"), F.col("kv_split")[1].alias("value"))
+
+# Filter for the fields of interest and keep only unique values
+unique_interesting_fields_df = filtered_kv_pairs_df.filter(F.col("key").isin("uid", "name", "hostname")) \
+                                                 .groupBy("key", "value") \
+                                                 .agg(F.first("value").alias("unique_value"))
+
+# Prefix the unique values with their keys and group by prefixed fields to count occurrences
+prefixed_fields_df = unique_interesting_fields_df.withColumn("prefixed_value", F.concat(F.col("key"), F.lit(": "), F.col("unique_value"))) \
+                                             .select("prefixed_value")
+
+# Count occurrences
+field_counts = prefixed_fields_df.groupBy("prefixed_value").count()
+
+# Start the streaming query
+query = field_counts.writeStream.outputMode("complete").format("console").start()
+
+# Wait for the query to terminate (in practice, you'd add a termination condition)
+query.awaitTermination()
