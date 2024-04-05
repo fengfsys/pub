@@ -1,3 +1,13 @@
+from pyspark.sql import SparkSession, functions as F
+
+# Initialize SparkSession
+spark = SparkSession.builder.appName("AppUsageCounter").getOrCreate()
+
+# Read stream from Kafka
+raw_df = spark.readStream.format("kafka") \
+    .option("kafka.bootstrap.servers", "iapp1318.croydon.ms.com:9092") \
+    .option("subscribe", "Log.AppTracker.Usage") \
+    .load()
 
 # Extract messages as strings
 messages_df = raw_df.selectExpr("cast(value as string) as message")
@@ -9,23 +19,21 @@ delimiter_pattern = r",\s+"
 lines_df = messages_df.select(F.explode(F.split("message", "\n")).alias("line"))
 kv_pairs_df = lines_df.select(F.explode(F.split("line", delimiter_pattern)).alias("kv_pair"))
 
-# Filter out non-key-value pairs and extract the fields of interest
+# Filter out non-key-value pairs and extract the fields of interest along with unique identifier
 filtered_kv_pairs_df = kv_pairs_df.filter(~F.col("kv_pair").rlike("^\\s*$")) \
                                  .withColumn("kv_split", F.split("kv_pair", "\\s+")) \
                                  .filter(F.size("kv_split") == 2) \
-                                 .select(F.col("kv_split")[0].alias("key"), F.col("kv_split")[1].alias("value"))
+                                 .select(F.monotonically_increasing_id().alias("id"), F.col("kv_split")[0].alias("key"), F.col("kv_split")[1].alias("value"))
 
-# Filter for the fields of interest and keep only unique values
-unique_interesting_fields_df = filtered_kv_pairs_df.filter(F.col("key").isin("uid", "name", "hostname")) \
-                                                 .groupBy("key", "value") \
-                                                 .agg(F.first("value").alias("unique_value"))
+# Filter for the fields of interest and flatten into a single column
+interesting_fields_df = filtered_kv_pairs_df.filter(F.col("key").isin("uid", "name", "hostname")) \
+                                           .withColumn("prefixed_value", F.concat(F.col("key"), F.lit(": "), F.col("value")))
 
-# Prefix the unique values with their keys and group by prefixed fields to count occurrences
-prefixed_fields_df = unique_interesting_fields_df.withColumn("prefixed_value", F.concat(F.col("key"), F.lit(": "), F.col("unique_value"))) \
-                                             .select("prefixed_value")
+# Deduplicate based on the prefixed value while preserving the unique identifier
+deduplicated_df = interesting_fields_df.dropDuplicates(["prefixed_value"])
 
-# Count occurrences
-field_counts = prefixed_fields_df.groupBy("prefixed_value").count()
+# Count occurrences using the unique identifier
+field_counts = deduplicated_df.groupBy("prefixed_value").count()
 
 # Start the streaming query
 query = field_counts.writeStream.outputMode("complete").format("console").start()
