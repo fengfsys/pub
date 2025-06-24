@@ -1,3 +1,39 @@
+import sched
+import time
+import datetime
+import subprocess
+
+scheduler = sched.scheduler(time.time, time.sleep)
+
+def is_weekday():
+    return datetime.datetime.today().weekday() < 5  # 0 = Monday
+
+def get_seconds_until(hour, minute):
+    now = datetime.datetime.now()
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= now:
+        target += datetime.timedelta(days=1)
+    return (target - now).total_seconds()
+
+def job():
+    now = datetime.datetime.now()
+    if is_weekday():
+        print(f"[{now}] Running scheduled job...")
+        subprocess.run("mytask arg1 arg2 &", shell=True)
+    else:
+        print(f"[{now}] Skipped (not a weekday).")
+
+    # Schedule next run
+    scheduler.enter(get_seconds_until(19, 55), 1, job)
+
+# Schedule the first run
+scheduler.enter(get_seconds_until(19, 55), 1, job)
+
+print("Task scheduled for 19:55 every weekday.")
+scheduler.run()
+
+
+
 import schedule
 import time
 import subprocess
