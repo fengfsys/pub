@@ -1,3 +1,29 @@
+import schedule
+import time
+import subprocess
+import datetime
+
+def job():
+    print(f"[{datetime.datetime.now()}] Running scheduled job...")
+    try:
+        subprocess.run("mytask arg1 arg2 &", shell=True, check=True)
+        print("✅ Job launched in background.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Job failed: {e}")
+
+schedule.every().monday.at("19:55").do(job)
+schedule.every().tuesday.at("19:55").do(job)
+schedule.every().wednesday.at("19:55").do(job)
+schedule.every().thursday.at("19:55").do(job)
+schedule.every().friday.at("19:55").do(job)
+
+print("📅 Weekday Scheduler Started. Job set for 19:55 every weekday.")
+while True:
+    schedule.run_pending()
+    time.sleep(1)
+
+
+
 @V$hNpKjbR6Vag3
 
 #test git fetch
