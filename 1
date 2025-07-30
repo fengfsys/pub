@@ -1,4 +1,8 @@
-import sched
+- name: Show local file content
+  debug:
+    msg: "{{ lookup('file', '/path/to/file.txt') }}"
+    
+    import sched
 import time
 import datetime
 import subprocess
